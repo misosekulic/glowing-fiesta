@@ -8,6 +8,7 @@ for extracurricular activities at Mergington High School.
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, EmailStr
 import os
 from pathlib import Path
 
@@ -76,6 +77,80 @@ activities = {
         "participants": ["charlotte@mergington.edu", "henry@mergington.edu"]
     }
 }
+
+# In-memory user store for registration and authentication
+users = {}
+
+
+def validate_password(password: str) -> bool:
+    """Validate password complexity for registration."""
+    has_lower = any(ch.islower() for ch in password)
+    has_upper = any(ch.isupper() for ch in password)
+    has_digit = any(ch.isdigit() for ch in password)
+    has_special = any(not ch.isalnum() for ch in password)
+    return has_lower and has_upper and has_digit and has_special
+
+
+class UserSignup(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+    branch: str
+    year: int
+
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+
+@app.post("/users/signup")
+def signup_user(user: UserSignup):
+    """Register a new student account."""
+    if user.email in users:
+        raise HTTPException(status_code=400, detail="Email is already registered")
+
+    if user.year < 1 or user.year > 12:
+        raise HTTPException(status_code=400, detail="Year must be between 1 and 12")
+
+    if not validate_password(user.password):
+        raise HTTPException(
+            status_code=400,
+            detail=("Password must contain at least one lowercase letter, one uppercase letter, "
+                    "one digit, and one special character")
+        )
+
+    users[user.email] = user.dict()
+    return {
+        "message": "User registered successfully",
+        "user": {
+            "name": user.name,
+            "email": user.email,
+            "branch": user.branch,
+            "year": user.year
+        }
+    }
+
+
+@app.post("/users/login")
+def login_user(credentials: UserLogin):
+    """Authenticate an existing student."""
+    user = users.get(credentials.email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user["password"] != credentials.password:
+        raise HTTPException(status_code=401, detail="Incorrect password")
+
+    return {
+        "message": "Login successful",
+        "user": {
+            "name": user["name"],
+            "email": user["email"],
+            "branch": user["branch"],
+            "year": user["year"]
+        }
+    }
 
 
 @app.get("/")
